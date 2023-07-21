@@ -478,9 +478,6 @@ class NavyConfig {
   const RandomAPConfig& randomAdmPolicy() const { return randomAPConfig_; }
 
   // ============ Device settings =============
-  bool getEnableIoUring() const { return enableIoUring_; }
-  unsigned int getNumIoThreads() const { return numIoThreads_; }
-  unsigned int getQDepthPerThread() const { return qDepthPerThread_; }
   uint64_t getBlockSize() const { return blockSize_; }
   const std::string& getFileName() const;
   const std::vector<std::string>& getRaidPaths() const;
@@ -488,6 +485,8 @@ class NavyConfig {
   uint64_t getFileSize() const { return fileSize_; }
   bool getTruncateFile() const { return truncateFile_; }
   uint32_t getDeviceMaxWriteSize() const { return deviceMaxWriteSize_; }
+  unsigned int getQDepth() const { return qDepth_; }
+  bool getEnableIoUring() const { return enableIoUring_; }
 
   // Return a const BlockCacheConfig to read values of its parameters.
   const BigHashConfig& bigHash() const {
@@ -522,16 +521,6 @@ class NavyConfig {
   RandomAPConfig& enableRandomAdmPolicy();
 
   // ============ Device settings =============
-  // Set the number of IO threads and queue depth per thread.
-  // If set, AsyncDevice instead of Device will be created with given
-  // configurations. For now, AsyncDevice is not supported for RAID.
-  void setIoThreads(unsigned int numIoThreads, unsigned int qDepthPerThread);
-
-  // Enable io_uring engine; applicable for AsyncDevice only
-  void setEnableIoUring(bool enableIoUring) noexcept {
-    enableIoUring_ = enableIoUring;
-  }
-
   // Set the device block size, i.e., minimum unit of IO
   void setBlockSize(uint64_t blockSize) noexcept { blockSize_ = blockSize; }
   // Set the parameters for a simple file.
@@ -555,6 +544,9 @@ class NavyConfig {
   void setDeviceMaxWriteSize(uint32_t deviceMaxWriteSize) noexcept {
     deviceMaxWriteSize_ = deviceMaxWriteSize;
   }
+
+  // Enable AsyncIo
+  void enableAsyncIo(unsigned int qDepth, bool enableIoUring);
 
   // ============ BlockCache settings =============
   // Return BlockCacheConfig for configuration.
@@ -623,11 +615,10 @@ class NavyConfig {
   // This is only used when in-mem buffer is enabled.
   uint32_t deviceMaxWriteSize_{};
 
-  // Number of IO threads for AsyncDevice.
-  unsigned int numIoThreads_{0};
-  // Number of queue depth per thread for AsyncDevice.
-  unsigned int qDepthPerThread_{0};
-  // Enable io_uring
+  // Number of queue depth per thread for async IO.
+  // If 0, sync IO is used
+  unsigned int qDepth_{0};
+  // Enable io_uring; valid only if async IO is used
   bool enableIoUring_{true};
 
   // ============ Engines settings =============

@@ -43,6 +43,8 @@ const uint64_t deviceMetadataSize = 1024 * 1024 * 1024;
 const uint64_t fileSize = 10 * 1024 * 1024;
 const bool truncateFile = false;
 const uint32_t deviceMaxWriteSize = 4 * 1024 * 1024;
+const unsigned int qDepth = 64;
+const bool enableIoUring = false;
 
 // BlockCache settings
 const uint32_t blockCacheRegionSize = 16 * 1024 * 1024;
@@ -87,6 +89,7 @@ void setDeviceTestSettings(NavyConfig& config) {
   config.setRaidFiles(raidPaths, fileSize, truncateFile);
   config.setDeviceMetadataSize(deviceMetadataSize);
   config.setDeviceMaxWriteSize(deviceMaxWriteSize);
+  config.enableAsyncIo(qDepth, enableIoUring);
 }
 
 void setBlockCacheTestSettings(NavyConfig& config) {
@@ -183,6 +186,9 @@ TEST(NavyConfigTest, Serialization) {
   expectedConfigMap["navyConfig::fileSize"] = "10485760";
   expectedConfigMap["navyConfig::truncateFile"] = "false";
   expectedConfigMap["navyConfig::deviceMaxWriteSize"] = "4194304";
+  expectedConfigMap["navyConfig::QDepth"] = folly::to<std::string>(qDepth);
+  expectedConfigMap["navyConfig::enableIoUring"] =
+      enableIoUring ? "true" : "false";
 
   expectedConfigMap["navyConfig::blockCacheLru"] = "false";
   expectedConfigMap["navyConfig::blockCacheRegionSize"] = "16777216";
