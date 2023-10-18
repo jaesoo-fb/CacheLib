@@ -19,6 +19,9 @@ on:
   workflow_dispatch:
   schedule:
     - cron:  '0 5 * * 1,3,5'
+  push:
+    tags:
+      - '*'
 jobs:
   build-cachelib-ubuntu-20:
     name: "Ubuntu-20 - Build CacheLib with all dependencies"

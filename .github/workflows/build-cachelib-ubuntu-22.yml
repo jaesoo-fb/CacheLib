@@ -14,11 +14,13 @@
 
 name: build-cachelib-ubuntu-22
 on:
-#  push:
   pull_request:
   workflow_dispatch:
   schedule:
     - cron:  '0 7 * * *'
+  push:
+    tags:
+      - 'v*'
 jobs:
   build-cachelib-ubuntu-22:
     name: "Ubuntu-22 - Build CacheLib with all dependencies"
