@@ -213,12 +213,14 @@ struct DeviceParamTest
       uint32_t maxDeviceWriteSize,
       std::shared_ptr<DeviceEncryptor> encryptor) {
     device_ = createDirectIoFileDevice(std::move(fVec),
+                                       std::move(std::vector<std::string>()),
                                        fileSize,
                                        blockSize,
                                        stripeSize,
                                        maxDeviceWriteSize,
                                        ioEngine_,
                                        qDepth_,
+                                       false,
                                        std::move(encryptor));
     return device_;
   }

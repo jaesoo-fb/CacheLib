@@ -22,7 +22,7 @@ namespace navy {
 MockDevice::MockDevice(uint64_t deviceSize,
                        uint32_t ioAlignSize,
                        std::shared_ptr<DeviceEncryptor> encryptor)
-    : Device{deviceSize, nullptr, ioAlignSize, 0},
+    : Device{deviceSize, nullptr, ioAlignSize, 0, 0},
       device_{deviceSize == 0
                   ? nullptr
                   : createMemoryDevice(
@@ -48,6 +48,9 @@ MockDevice::MockDevice(uint64_t deviceSize,
   ON_CALL(*this, flushImpl()).WillByDefault(testing::Invoke([this]() {
     device_->flush();
   }));
+
+  ON_CALL(*this, allocatePlacementHandle())
+      .WillByDefault(testing::Invoke([this]() { return -1; }));
 }
 } // namespace navy
 } // namespace cachelib
