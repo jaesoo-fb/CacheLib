@@ -202,16 +202,16 @@ class Device {
   // alignment granularity for the offsets and size to read/write calls.
   const uint32_t ioAlignmentSize_{kDefaultAlignmentSize};
 
+  // Some devices have this transfer size limit due to DMA size limitations.
+  // This limit is applicable for both writes and reads.
+  const uint32_t maxIOSize_{0};
+
   // When write-io is issued, it is broken down into writeImpl calls at
   // this granularity. maxWriteSize_ 0 means no maximum write size.
   // maxWriteSize_ option allows splitting the large writes to smaller
   // writes so that the device read latency is not adversely impacted by
   // large device writes
   const uint32_t maxWriteSize_{0};
-
-  // Some devices have this transfer size limit due to DMA size limitations.
-  // This limit is applicable for both writes and reads.
-  const uint32_t maxIOSize_{0};
 
   std::shared_ptr<DeviceEncryptor> encryptor_;
 

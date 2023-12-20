@@ -134,7 +134,7 @@ class NvmeData {
 // as of now; and not supported through conventional block interfaces.
 class FdpNvme {
  public:
-  FdpNvme(const std::string& fileName);
+  explicit FdpNvme(const std::string& fileName);
 
   FdpNvme(const FdpNvme&) = delete;
   FdpNvme& operator=(const FdpNvme&) = delete;

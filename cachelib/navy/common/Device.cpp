@@ -312,6 +312,9 @@ class FileDevice : public Device {
   // File vector for devices or regular files
   const std::vector<folly::File> fvec_{};
 
+  // Device info vector for FDP support
+  const std::vector<std::shared_ptr<FdpNvme>> fdpNvmeVec_{};
+
   // RAID stripe size when multiple devices are used
   const uint32_t stripeSize_;
 
@@ -331,9 +334,6 @@ class FileDevice : public Device {
   // The max number of outstanding requests per IO context. This is used to
   // determine the capacity of an io_uring/libaio queue
   const uint32_t qDepthPerContext_;
-
-  // Device info vector for FDP support
-  const std::vector<std::shared_ptr<FdpNvme>> fdpNvmeVec_{};
 
   AtomicCounter numProcessed_{0};
 
@@ -357,7 +357,7 @@ class MemoryDevice final : public Device {
   bool writeImpl(uint64_t offset,
                  uint32_t size,
                  const void* value,
-                 int handle) noexcept override {
+                 int /* unused */) noexcept override {
     XDCHECK_LE(offset + size, getSize());
     std::memcpy(buffer_.get() + offset, value, size);
     return true;
@@ -454,13 +454,14 @@ bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
   auto remainingSize = size;
   auto maxReadSize = (maxIOSize_ == 0) ? remainingSize : maxIOSize_;
   bool result = true;
+  uint64_t curOffset = offset;
   while (remainingSize > 0) {
     auto readSize = std::min<size_t>(maxReadSize, remainingSize);
-    XDCHECK_EQ(offset % ioAlignmentSize_, 0ul);
+    XDCHECK_EQ(curOffset % ioAlignmentSize_, 0ul);
     XDCHECK_EQ(size % ioAlignmentSize_, 0ul);
 
     auto timeBegin = getSteadyClock();
-    result = readImpl(offset, readSize, data);
+    result = readImpl(curOffset, readSize, data);
     readLatencyEstimator_.trackValue(
         toMicros(getSteadyClock() - timeBegin).count());
 
@@ -469,7 +470,7 @@ bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
       return false;
     }
     bytesRead_.add(readSize);
-    offset += readSize;
+    curOffset += readSize;
     data += readSize;
     remainingSize -= readSize;
   }
@@ -829,9 +830,8 @@ void AsyncIoContext::handleCompletion(
 }
 
 bool AsyncIoContext::submitIo(IOOp& op) {
-  IOReq& req = op.parent_;
-
   op.startTime_ = getSteadyClock();
+
   while (numOutstanding_ >= qDepth_) {
     if (qDepth_ > 1) {
       XLOG_EVERY_MS(ERR, 10000) << fmt::format(
@@ -885,7 +885,7 @@ std::unique_ptr<folly::AsyncBaseOp> AsyncIoContext::prepAsyncIo(IOOp& op) {
     asyncOp->pwrite(op.fd_, op.data_, op.size_, op.offset_);
   }
 
-  return std::move(asyncOp);
+  return asyncOp;
 }
 
 std::unique_ptr<folly::AsyncBaseOp> AsyncIoContext::prepNvmeIo(IOOp& op) {
@@ -1092,7 +1092,7 @@ std::unique_ptr<Device> createDirectIoFileDevice(
     std::shared_ptr<DeviceEncryptor> encryptor) {
   XDCHECK(folly::isPowTwo(blockSize));
 
-  uint32_t maxIOSize{0u};
+  uint32_t maxIOSize = maxDeviceWriteSize;
   std::vector<std::shared_ptr<FdpNvme>> fdpNvmeVec{};
 #ifndef CACHELIB_IOURING_DISABLE
   if (isFDPEnabled) {
@@ -1149,7 +1149,7 @@ std::unique_ptr<Device> createDirectIoFileDevice(
     uint32_t maxDeviceWriteSize,
     std::shared_ptr<DeviceEncryptor> encryptor) {
   return createDirectIoFileDevice(std::move(fVec),
-                                  std::move(std::vector<std::string>()),
+                                  {},
                                   fileSize,
                                   blockSize,
                                   stripeSize,

@@ -21,7 +21,7 @@
 #include <sys/ioctl.h>
 
 #include <cstring>
-#include <numeric>
+
 #include <regex>
 
 #ifndef CACHELIB_IOURING_DISABLE
