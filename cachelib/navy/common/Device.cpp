@@ -59,18 +59,18 @@ struct IOOp {
                 uint64_t offset,
                 uint32_t size,
                 void* data,
-                int handle)
+                std::optional<int> placeHandle = std::nullopt)
       : parent_(parent),
         idx_(idx),
         fd_(fd),
         offset_(offset),
         size_(size),
         data_(data),
-        handle_(handle) {}
+        placeHandle_(placeHandle) {}
 
   std::string toString() const;
 
-  bool done(ssize_t status);
+  bool done(ssize_t len);
 
   IOReq& parent_;
   // idx_ is the index of this op in the request
@@ -81,7 +81,7 @@ struct IOOp {
   const uint64_t offset_ = 0;
   const uint32_t size_ = 0;
   void* const data_;
-  int handle_;
+  std::optional<int> placeHandle_;
 
   // The number of resubmission on EAGAIN error
   uint8_t resubmitted_ = 0;
@@ -102,7 +102,7 @@ struct IOReq {
                  uint64_t offset,
                  uint32_t size,
                  void* data,
-                 int handle);
+                 std::optional<int> placeHandle = std::nullopt);
 
   const char* getOpName() const {
     switch (opType_) {
@@ -134,7 +134,7 @@ struct IOReq {
   const uint64_t offset_ = 0;
   const uint32_t size_ = 0;
   void* const data_;
-  int handle_;
+  std::optional<int> placeHandle_;
 
   // Aggregate result of operations
   bool result_ = true;
@@ -174,7 +174,7 @@ class IoContext {
                                      uint64_t offset,
                                      uint32_t size,
                                      const void* data,
-                                     int handle);
+                                     int placeHandle);
 
   // Submit a IOOp to the device; should not fail for AsyncIoContext
   virtual bool submitIo(IOOp& op) = 0;
@@ -379,20 +379,20 @@ class MemoryDevice final : public Device {
 };
 } // namespace
 
-bool Device::write(uint64_t offset, BufferView view, int handle) {
+bool Device::write(uint64_t offset, BufferView view, int placeHandle) {
   if (encryptor_) {
     auto writeBuffer = makeIOBuffer(view.size());
     writeBuffer.copyFrom(0, view);
-    return write(offset, std::move(writeBuffer), handle);
+    return write(offset, std::move(writeBuffer), placeHandle);
   }
 
   const auto size = view.size();
   XDCHECK_LE(offset + size, size_);
   const uint8_t* data = reinterpret_cast<const uint8_t*>(view.data());
-  return writeInternal(offset, data, size, handle);
+  return writeInternal(offset, data, size, placeHandle);
 }
 
-bool Device::write(uint64_t offset, Buffer buffer, int handle) {
+bool Device::write(uint64_t offset, Buffer buffer, int placeHandle) {
   const auto size = buffer.size();
   XDCHECK_LE(offset + buffer.size(), size_);
   uint8_t* data = reinterpret_cast<uint8_t*>(buffer.data());
@@ -405,13 +405,13 @@ bool Device::write(uint64_t offset, Buffer buffer, int handle) {
       return false;
     }
   }
-  return writeInternal(offset, data, size, handle);
+  return writeInternal(offset, data, size, placeHandle);
 }
 
 bool Device::writeInternal(uint64_t offset,
                            const uint8_t* data,
                            size_t size,
-                           int handle) {
+                           int placeHandle) {
   auto remainingSize = size;
   auto maxWriteSize = (maxWriteSize_ == 0) ? remainingSize : maxWriteSize_;
   bool result = true;
@@ -421,7 +421,7 @@ bool Device::writeInternal(uint64_t offset,
     XDCHECK_EQ(writeSize % ioAlignmentSize_, 0ul);
 
     auto timeBegin = getSteadyClock();
-    result = writeImpl(offset, writeSize, data, handle);
+    result = writeImpl(offset, writeSize, data, placeHandle);
     writeLatencyEstimator_.trackValue(
         toMicros((getSteadyClock() - timeBegin)).count());
 
@@ -548,15 +548,15 @@ std::string IOOp::toString() const {
       offset_, size_, data_, resubmitted_);
 }
 
-bool IOOp::done(ssize_t size) {
+bool IOOp::done(ssize_t len) {
   XDCHECK(parent_.opType_ == READ || parent_.opType_ == WRITE);
 
-  bool result = (size == size_);
+  bool result = (len == size_);
   if (!result) {
     // Report IO errors
     XLOG_N_PER_MS(ERR, 10, 1000) << folly::sformat(
-        "[{}] IO error: {} ret={} errno={} ({})", parent_.context_.getName(),
-        toString(), size, errno, std::strerror(errno));
+        "[{}] IO error: {} len={} errno={} ({})", parent_.context_.getName(),
+        toString(), len, errno, std::strerror(errno));
   }
 
   // Check for timeout
@@ -585,13 +585,13 @@ IOReq::IOReq(IoContext& context,
              uint64_t offset,
              uint32_t size,
              void* data,
-             int handle)
+             std::optional<int> placeHandle)
     : context_(context),
       opType_(opType),
       offset_(offset),
       size_(size),
       data_(data),
-      handle_(handle) {
+      placeHandle_(placeHandle) {
   uint8_t* buf = reinterpret_cast<uint8_t*>(data_);
   uint32_t idx = 0;
   if (fvec.size() > 1) {
@@ -605,7 +605,7 @@ IOReq::IOReq(IoContext& context,
 
       ops_.emplace_back(*this, idx++, fvec[fdIdx].fd(),
                         stripeStartOffset + ioOffsetInStripe, allowedIOSize,
-                        buf, handle_);
+                        buf, placeHandle_);
 
       size -= allowedIOSize;
       offset += allowedIOSize;
@@ -613,7 +613,7 @@ IOReq::IOReq(IoContext& context,
     }
   } else {
     ops_.emplace_back(*this, idx++, fvec[0].fd(), offset_, size_, data_,
-                      handle_);
+                      placeHandle_);
   }
 
   numRemaining_ = ops_.size();
@@ -679,7 +679,7 @@ std::shared_ptr<IOReq> IoContext::submitRead(
     uint32_t size,
     void* data) {
   auto req = std::make_shared<IOReq>(*this, fvec, stripeSize, OpType::READ,
-                                     offset, size, data, -1);
+                                     offset, size, data);
   submitReq(req);
   return req;
 }
@@ -690,10 +690,10 @@ std::shared_ptr<IOReq> IoContext::submitWrite(
     uint64_t offset,
     uint32_t size,
     const void* data,
-    int handle) {
+    int placeHandle) {
   auto req =
       std::make_shared<IOReq>(*this, fvec, stripeSize, OpType::WRITE, offset,
-                              size, const_cast<void*>(data), handle);
+                              size, const_cast<void*>(data), placeHandle);
   submitReq(req);
   return req;
 }
@@ -730,16 +730,16 @@ ssize_t SyncIoContext::readSync(int fd,
 bool SyncIoContext::submitIo(IOOp& op) {
   op.startTime_ = getSteadyClock();
 
-  ssize_t status;
+  ssize_t len;
   if (op.parent_.opType_ == OpType::READ) {
-    status = readSync(op.fd_, op.offset_, op.size_, op.data_);
+    len = readSync(op.fd_, op.offset_, op.size_, op.data_);
   } else {
     XDCHECK_EQ(op.parent_.opType_, OpType::WRITE);
-    status = writeSync(op.fd_, op.offset_, op.size_, op.data_);
+    len = writeSync(op.fd_, op.offset_, op.size_, op.data_);
   }
   op.submitTime_ = getSteadyClock();
 
-  return op.done(status);
+  return op.done(len);
 }
 
 /*
@@ -814,12 +814,12 @@ void AsyncIoContext::handleCompletion(
                          aop->result(), iop->toString());
     }
 
-    auto result = aop->result();
+    auto len = aop->result();
     if (fdpNvmeVec_.size() > 0) {
       // 0 means success here, so get the completed size from iop
-      result = !result ? iop->size_ : 0;
+      len = !len ? iop->size_ : 0;
     }
-    iop->done(result);
+    iop->done(len);
 
     if (!waitList_.empty()) {
       auto& waiter = waitList_.front();
@@ -856,7 +856,7 @@ bool AsyncIoContext::submitIo(IOOp& op) {
   if (!compHandler_) {
     // Wait completion synchronously if completion handler is not available.
     // i.e., when async io is used with non-epoll mode
-    auto completed = asyncBase_->wait(1);
+    auto completed = asyncBase_->wait(1 /* minRequests */);
     handleCompletion(completed);
   }
 
@@ -903,8 +903,8 @@ std::unique_ptr<folly::AsyncBaseOp> AsyncIoContext::prepNvmeIo(IOOp& op) {
     fdpNvmeVec_[kDefaultFdpIdx]->prepReadUringCmdSqe(sqe, op.data_, op.size_,
                                                      op.offset_);
   } else {
-    fdpNvmeVec_[kDefaultFdpIdx]->prepWriteUringCmdSqe(sqe, op.data_, op.size_,
-                                                      op.offset_, op.handle_);
+    fdpNvmeVec_[kDefaultFdpIdx]->prepWriteUringCmdSqe(
+        sqe, op.data_, op.size_, op.offset_, op.placeHandle_.value_or(-1));
   }
   io_uring_sqe_set_data(&sqe, iouringCmdOp.get());
   return std::move(iouringCmdOp);
@@ -981,9 +981,9 @@ bool FileDevice::readImpl(uint64_t offset, uint32_t size, void* value) {
 bool FileDevice::writeImpl(uint64_t offset,
                            uint32_t size,
                            const void* value,
-                           int handle) {
+                           int placeHandle) {
   auto req = getIoContext()->submitWrite(fvec_, stripeSize_, offset, size,
-                                         value, handle);
+                                         value, placeHandle);
   return req->waitCompletion();
 }
 
@@ -1026,6 +1026,8 @@ IoContext* FileDevice::getIoContext() {
     if (useIoUring) {
 #ifndef CACHELIB_IOURING_DISABLE
       if (fdpNvmeVec_.size() > 0) {
+        // Big sqe/cqe is mandatory for NVMe passthrough
+        // https://elixir.bootlin.com/linux/v6.7/source/drivers/nvme/host/ioctl.c#L742
         folly::IoUringOp::Options options;
         options.sqe128 = true;
         options.cqe32 = true;

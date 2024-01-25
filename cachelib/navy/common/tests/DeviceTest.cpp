@@ -116,7 +116,7 @@ TEST(Device, Latency) {
       }));
 
   Buffer buf{1};
-  device.read(0, 1, nullptr);
+  device.read(0, 1, buf.data());
   device.write(0, std::move(buf));
 
   MockCounterVisitor visitor;

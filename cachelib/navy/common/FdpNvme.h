@@ -23,10 +23,6 @@
 #include "cachelib/navy/common/Buffer.h"
 #include "cachelib/navy/common/Device.h"
 
-#ifndef CACHELIB_IOURING_DISABLE
-#include <liburing.h>
-#endif
-
 namespace facebook {
 namespace cachelib {
 namespace navy {

@@ -20,8 +20,8 @@
 #include <linux/nvme_ioctl.h>
 #include <sys/ioctl.h>
 
+#include <boost/regex.hpp>
 #include <cstring>
-#include <regex>
 
 #ifndef CACHELIB_IOURING_DISABLE
 
@@ -76,7 +76,11 @@ int FdpNvme::nvmeIOMgmtRecv(uint32_t nsid,
                             uint32_t data_len,
                             uint8_t op,
                             uint16_t op_specific) {
-  // IO management command details
+  // Build the I/O management receive command
+  // For further details on the CDB format, consult the specification
+  // available as "TP4146 Flexible Data Placement 2022.11.30 Ratified"
+  // in the following link:
+  // https://nvmexpress.org/wp-content/uploads/NVM-Express-2.0-Ratified-TPs_20230111.zip
   uint32_t cdw10 = (op & 0xf) | (op_specific & 0xff << 16);
   uint32_t cdw11 = (data_len >> 2) - 1; // cdw11 is 0 based
 
@@ -278,7 +282,8 @@ NvmeData FdpNvme::readNvmeInfo(const std::string& bdevName) {
 }
 
 bool isValidNvmeDevice(const std::string& bdevName) {
-  return std::regex_match(bdevName, std::regex("^/dev/nvme\\d+n\\d+(p\\d+)?$"));
+  return boost::regex_match(bdevName,
+                            boost::regex("^/dev/nvme\\d+n\\d+(p\\d+)?$"));
 }
 
 // Converts an nvme block device name (ex: /dev/nvme0n1p1) to corresponding

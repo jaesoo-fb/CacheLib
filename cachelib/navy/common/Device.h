@@ -57,6 +57,19 @@ class DeviceEncryptor {
 //
 // Read/write returns true if @value written/read entirely (all @size bytes).
 // Pointer ownership is not passed.
+//
+// For the device supporting the data placement technology like FDP,
+// the write API takes the optional argument placeHandle which is used
+// to pass the hint for the placement of the data in the device.
+// E.g., in case of NVMe FDP, the SSD places the data to a different
+// erase unit (a.k.a. superblock) inside the SSD depending on the handle.
+// The expectation is that, if the host writes the data in sequential
+// overwrite manner (like the BlockCache with FIFO replacement),
+// the overwrites makes the whole superblock being invalidated inside
+// the SSD. As such, the SSD can reclaim the superblock simply by erasing
+// it without needs to copy any valid data (so called garbage collection)
+// to a different superblock.
+// (https://nvmexpress.org/nvmeflexible-data-placement-fdp-blog/)
 class Device {
  public:
   // @param size    total size of the device
@@ -127,12 +140,12 @@ class Device {
   // @param buffer    Data to write to the device. It must be aligned the same
   //                  way as `makeIOBuffer` would return.
   // @param offset    Must be ioAlignmentSize_ aligned
-  // @param handle    Placement Handle for data placement technology like FDP
-  bool write(uint64_t offset, Buffer buffer, int handle = -1);
+  // @param placeHandle    handle for data placement technology like FDP
+  bool write(uint64_t offset, Buffer buffer, int placeHandle = -1);
 
   // Write buffer view to the device. This call makes a copy of the buffer if
   // entryptor is present.
-  bool write(uint64_t offset, BufferView bufferView, int handle = -1);
+  bool write(uint64_t offset, BufferView bufferView, int placeHandle = -1);
 
   // Allocate a new stream and return the handle for Placement capable devices.
   virtual int allocatePlacementHandle() = 0;
@@ -173,7 +186,7 @@ class Device {
   virtual bool writeImpl(uint64_t offset,
                          uint32_t size,
                          const void* value,
-                         int handle = -1) = 0;
+                         int placeHandle = -1) = 0;
   virtual bool readImpl(uint64_t offset, uint32_t size, void* value) = 0;
   virtual void flushImpl() = 0;
 
@@ -193,7 +206,7 @@ class Device {
   bool writeInternal(uint64_t offset,
                      const uint8_t* data,
                      size_t size,
-                     int handle = -1);
+                     int placeHandle = -1);
 
   // size of the device. All offsets for write/read should be contained
   // below this.
